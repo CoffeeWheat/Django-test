@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -30,10 +31,18 @@ SECRET_KEY = os.getenv(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG','True').lower() == 'true'
 
-ALLOWED_HOSTS = os.getenv(
-    'ALLOWED_HOSTS',
-    '127.0.0.1,localhost'
-).split(',')
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv(
+        'ALLOWED_HOSTS',
+        '127.0.0.1,localhost,django-project-d7kr.onrender.com',
+    ).split(',')
+    if host.strip()
+]
+# Render 部署時自動加入 .onrender.com 萬用允許
+if os.getenv('RENDER'):
+    ALLOWED_HOSTS += ['.onrender.com']
+
 
 
 # Application definition
@@ -45,19 +54,25 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
+    'django_filters',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'marketplace',
     'announcements',
-    'postpages',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -90,6 +105,66 @@ DATABASES = {
         ssl_require = True
     )
 }
+
+DATABASE_CONN_MAX_AGE = int(os.getenv('DATABASE_CONN_MAX_AGE', '600'))
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('THROTTLE_ANON', '120/min'),
+        'user': os.getenv('THROTTLE_USER', '600/min'),
+        'auth': os.getenv('THROTTLE_AUTH', '10/min'),
+    },
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=int(os.getenv('JWT_ACCESS_MINUTES', '60'))
+    ),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=int(os.getenv('JWT_REFRESH_DAYS', '14'))
+    ),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:8501,http://localhost:8508,http://127.0.0.1:8501,http://127.0.0.1:8508',
+    ).split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = False
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('DATA_UPLOAD_MAX_MEMORY_SIZE', '10485760'))
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('FILE_UPLOAD_MAX_MEMORY_SIZE', '5242880'))
 
 
 # Password validation
@@ -129,12 +204,15 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = os.getenv(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'CL Taipei <no-reply@cltaipei.local>')
